@@ -31,7 +31,6 @@ from .scanner import (
     SensitiveDataScanner as SecretSentry,
     Finding,
     quick_scan,
-    create_sample_files
 )
 
 # Define what gets imported with "from secretsentry import *"
@@ -40,7 +39,6 @@ __all__ = [
     "SensitiveDataScanner", 
     "Finding",
     "quick_scan", 
-    "create_sample_files",
     "__version__"
 ]
 

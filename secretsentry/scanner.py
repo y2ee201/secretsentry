@@ -912,15 +912,6 @@ def quick_scan(directory_path: str,
     return scanner
 
 
-def create_sample_files(base_dir: str = "./test_sensitive_data") -> None:
-    """Create sample files with various types of sensitive data for testing"""
-    os.makedirs(base_dir, exist_ok=True)
-    
-    # Sample Python file
-    python_content = '''#!/usr/bin/env python3
-import os
-import requests
-
 # NOTICE: ALL DATA BELOW IS FAKE AND FOR TESTING SECRETSENTRY ONLY
 # These patterns are designed to be detected by the scanner but are obviously fake
 

@@ -12,7 +12,6 @@ import os
 import json
 from typing import Optional, List
 
-from .scanner import SensitiveDataScanner, quick_scan, create_sample_files
 
 
 def main():
@@ -73,7 +72,6 @@ Examples:
         return 0
     
     if args.command == 'create-samples':
-        create_sample_files(args.directory)
         return 0
     
     if args.command == 'list-patterns':
