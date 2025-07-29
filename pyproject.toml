@@ -1,0 +1,74 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "secretsentry"
+version = "1.0.0"
+authors = [
+    {name = "Abdul Jilani", email = "abdul.jilani@evolveailabs.com"},
+]
+description = "Advanced sensitive data scanner with Jupyter notebook support and intelligent false positive filtering"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.7"
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: System Administrators",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.7",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Security",
+    "Topic :: Software Development :: Quality Assurance",
+    "Topic :: System :: Systems Administration",
+    "Topic :: Utilities",
+]
+keywords = [
+    "security", "secrets", "scanner", "pii", "jupyter", "notebook", 
+    "api-keys", "credentials", "sanitization", "privacy", "devops", "ci-cd"
+]
+dependencies = [
+    "tqdm>=4.62.0",
+]
+
+[project.optional-dependencies]
+full = [
+    "pandas>=1.3.0",
+    "matplotlib>=3.3.0",
+    "seaborn>=0.11.0",
+    "ipywidgets>=7.6.0",
+]
+jupyter = [
+    "ipywidgets>=7.6.0",
+    "pandas>=1.3.0",
+    "matplotlib>=3.3.0",
+    "seaborn>=0.11.0",
+]
+analysis = [
+    "pandas>=1.3.0",
+    "matplotlib>=3.3.0",
+    "seaborn>=0.11.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/y2ee201/secretsentry"
+Documentation = "https://github.com/y2ee201/secretsentry#readme"
+Repository = "https://github.com/y2ee201/secretsentry.git"
+"Bug Tracker" = "https://github.com/y2ee201/secretsentry/issues"
+
+[project.scripts]
+secretsentry = "secretsentry.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["secretsentry*"]
+
+[tool.setuptools.package-data]
+secretsentry = ["*.json", "*.yaml", "*.yml"]
