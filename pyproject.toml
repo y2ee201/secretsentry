@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "secretsentry"
-version = "1.0.0"
+version = "2.0.0"
 authors = [
     {name = "Abdul Jilani", email = "abdul.jilani@evolveailabs.com"},
 ]
@@ -32,10 +32,12 @@ classifiers = [
 ]
 keywords = [
     "security", "secrets", "scanner", "pii", "jupyter", "notebook", 
-    "api-keys", "credentials", "sanitization", "privacy", "devops", "ci-cd"
+    "api-keys", "credentials", "sanitization", "privacy", "devops", "ci-cd",
+    "machine-learning", "ml", "transformers", "false-positives"
 ]
 dependencies = [
     "tqdm>=4.62.0",
+    "numpy>=1.19.0",
 ]
 
 [project.optional-dependencies]
@@ -44,6 +46,10 @@ full = [
     "matplotlib>=3.3.0",
     "seaborn>=0.11.0",
     "ipywidgets>=7.6.0",
+    "scikit-learn>=1.0.0",
+    "transformers>=4.20.0",
+    "torch>=1.11.0",
+    "joblib>=1.1.0",
 ]
 jupyter = [
     "ipywidgets>=7.6.0",
@@ -55,6 +61,18 @@ analysis = [
     "pandas>=1.3.0",
     "matplotlib>=3.3.0",
     "seaborn>=0.11.0",
+]
+ml = [
+    "scikit-learn>=1.0.0",
+    "joblib>=1.1.0",
+    "numpy>=1.19.0",
+]
+ml-advanced = [
+    "scikit-learn>=1.0.0",
+    "transformers>=4.20.0",
+    "torch>=1.11.0",
+    "joblib>=1.1.0",
+    "numpy>=1.19.0",
 ]
 
 [project.urls]

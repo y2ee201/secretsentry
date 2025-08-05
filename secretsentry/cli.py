@@ -12,6 +12,13 @@ import os
 import json
 from typing import Optional, List
 
+try:
+    from .scanner import SensitiveDataScanner, quick_scan, quick_ml_scan
+    from .ml_detector import check_ml_requirements
+    HAS_SCANNER = True
+except ImportError:
+    HAS_SCANNER = False
+
 
 
 def main():
@@ -23,9 +30,13 @@ def main():
         epilog="""
 Examples:
   %(prog)s scan ./my_project --display
+  %(prog)s scan ./my_project --ml --display                    # Enable ML detection
+  %(prog)s scan ./my_project --ml-quick                        # Quick ML scan
+  %(prog)s scan ./my_project --ml-only --ml-confidence 0.8     # ML-only mode
   %(prog)s scan ./my_project --sanitize --dry-run
   %(prog)s scan ./my_project --export findings.json
   %(prog)s scan ./my_project --extensions .py .js .ipynb --exclude-dirs build dist
+  %(prog)s scan --check-ml                                     # Check ML requirements
   %(prog)s create-samples ./test_data
   %(prog)s list-patterns
         """
@@ -49,6 +60,15 @@ Examples:
     scan_parser.add_argument('--quiet', action='store_true', help='Minimal output')
     scan_parser.add_argument('--quick', action='store_true', help='Use quick_scan function')
     
+    # ML Detection options
+    ml_group = scan_parser.add_argument_group('ML Detection', 'Machine Learning based detection options')
+    ml_group.add_argument('--ml', action='store_true', help='Enable ML-based detection')
+    ml_group.add_argument('--ml-only', action='store_true', help='Use only ML detection (no regex)')
+    ml_group.add_argument('--ml-confidence', type=float, default=0.7, 
+                         help='ML confidence threshold (0.0-1.0, default: 0.7)')
+    ml_group.add_argument('--ml-quick', action='store_true', help='Use quick_ml_scan function')
+    ml_group.add_argument('--check-ml', action='store_true', help='Check ML requirements and exit')
+    
     # List patterns command  
     list_parser = subparsers.add_parser('list-patterns', help='List available detection patterns')
     list_parser.add_argument('--category', help='Filter patterns by category')
@@ -64,6 +84,33 @@ Examples:
     version_parser = subparsers.add_parser('version', help='Show version information')
     
     args = parser.parse_args()
+    
+    # Check ML requirements if requested
+    if hasattr(args, 'check_ml') and args.check_ml:
+        if not HAS_SCANNER:
+            print("❌ Scanner module not available")
+            return 1
+        
+        print("🔍 Checking ML Detection Requirements...")
+        requirements = check_ml_requirements()
+        
+        print("📋 ML Requirements Status:")
+        for requirement, available in requirements.items():
+            status = "✅" if available else "❌"
+            print(f"  {requirement}: {status}")
+        
+        if all(requirements.values()):
+            print("\n🎉 All ML requirements satisfied! You can use --ml flags.")
+        else:
+            print("\n💡 To enable ML detection, install missing dependencies:")
+            if not requirements.get('sklearn'):
+                print("   pip install scikit-learn")
+            if not requirements.get('transformers'):
+                print("   pip install transformers torch")
+            if not requirements.get('joblib'):
+                print("   pip install joblib")
+        
+        return 0
     
     if args.command == 'version':
         from . import __version__, __description__
@@ -124,19 +171,40 @@ Examples:
             print(f"Error loading custom patterns: {e}")
             return 1
     
-    # Initialize scanner
-    if args.quick:
-        # Use quick_scan function
+    # Initialize scanner with ML support
+    if hasattr(args, 'ml_quick') and args.ml_quick:
+        # Use quick_ml_scan function
+        scanner = quick_ml_scan(
+            args.path,
+            file_extensions=args.extensions,
+            confidence_threshold=args.ml_confidence,
+            show_plots=False  # CLI doesn't support plots
+        )
+        findings = scanner.findings if scanner else []
+    elif args.quick:
+        # Use quick_scan function with optional ML
+        use_ml = hasattr(args, 'ml') and (args.ml or args.ml_only)
         scanner = quick_scan(
             args.path,
             file_extensions=args.extensions,
             custom_patterns=custom_patterns if custom_patterns else None,
-            show_plots=False  # CLI doesn't support plots
+            show_plots=False,  # CLI doesn't support plots
+            use_ml_detection=use_ml,
+            ml_confidence_threshold=args.ml_confidence if hasattr(args, 'ml_confidence') else 0.7
         )
         findings = scanner.findings
     else:
-        # Manual scanning
-        scanner = SensitiveDataScanner(custom_patterns=custom_patterns, execution_mode='cli')
+        # Manual scanning with ML support
+        use_ml = hasattr(args, 'ml') and (args.ml or args.ml_only)
+        ml_ensemble = hasattr(args, 'ml') and args.ml and not args.ml_only
+        
+        scanner = SensitiveDataScanner(
+            custom_patterns=custom_patterns, 
+            execution_mode='cli',
+            use_ml_detection=use_ml,
+            ml_confidence_threshold=args.ml_confidence if hasattr(args, 'ml_confidence') else 0.7,
+            ml_ensemble_mode=ml_ensemble
+        )
         
         # Scan files
         try:

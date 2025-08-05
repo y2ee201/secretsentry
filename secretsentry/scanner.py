@@ -48,6 +48,15 @@ try:
 except ImportError:
     HAS_TQDM = False
 
+try:
+    from .ml_detector import MLSecretDetector, MLFinding, check_ml_requirements
+    HAS_ML_SUPPORT = True
+except ImportError:
+    HAS_ML_SUPPORT = False
+    MLSecretDetector = None
+    MLFinding = None
+    check_ml_requirements = None
+
 
 @dataclass
 class Finding:
@@ -74,13 +83,19 @@ class SensitiveDataScanner:
     """
     
     def __init__(self, custom_patterns: Optional[Dict[str, str]] = None, 
-                 execution_mode: str = 'auto'):
+                 execution_mode: str = 'auto',
+                 use_ml_detection: bool = False,
+                 ml_confidence_threshold: float = 0.7,
+                 ml_ensemble_mode: bool = True):
         """
         Initialize the scanner
         
         Args:
             custom_patterns: Custom regex patterns {name: pattern}
             execution_mode: 'cli', 'jupyter', 'script', or 'auto'
+            use_ml_detection: Enable ML-based detection for improved accuracy
+            ml_confidence_threshold: Minimum confidence score for ML predictions
+            ml_ensemble_mode: Use both regex and ML for ensemble detection
         """
         self.findings: List[Finding] = []
         self.patterns = self._load_default_patterns()
@@ -94,11 +109,25 @@ class SensitiveDataScanner:
             execution_mode = self._detect_execution_mode()
         
         self.execution_mode = execution_mode
+        
+        # ML Detection settings
+        self.use_ml_detection = use_ml_detection and HAS_ML_SUPPORT
+        self.ml_confidence_threshold = ml_confidence_threshold
+        self.ml_ensemble_mode = ml_ensemble_mode
+        self.ml_detector = None
+        self.ml_findings: List = []
+        
+        if self.use_ml_detection:
+            self._initialize_ml_detector()
+        
         self.scan_stats = {
             'files_scanned': 0,
             'total_findings': 0,
+            'ml_findings': 0,
             'patterns_matched': set(),
-            'false_positives_filtered': 0
+            'false_positives_filtered': 0,
+            'ml_false_positives_filtered': 0,
+            'detection_mode': 'ml_ensemble' if self.ml_ensemble_mode and self.use_ml_detection else ('ml_only' if self.use_ml_detection else 'regex_only')
         }
     
     def _detect_execution_mode(self) -> str:
@@ -114,6 +143,40 @@ class SensitiveDataScanner:
                 return 'script'
         except:
             return 'script'
+    
+    def _initialize_ml_detector(self) -> bool:
+        """Initialize ML-based detection"""
+        if not HAS_ML_SUPPORT:
+            print("⚠️  ML detection requested but not available. Install with: pip install scikit-learn transformers torch")
+            self.use_ml_detection = False
+            return False
+        
+        try:
+            print("🤖 Initializing ML-based detection...")
+            self.ml_detector = MLSecretDetector(
+                confidence_threshold=self.ml_confidence_threshold,
+                use_transformers=True  # Enable transformer models if available
+            )
+            
+            if self.ml_detector.initialize():
+                print("✅ ML detection initialized successfully")
+                return True
+            else:
+                print("❌ Failed to initialize ML detection, falling back to regex-only")
+                self.use_ml_detection = False
+                return False
+                
+        except Exception as e:
+            print(f"❌ Error initializing ML detector: {e}")
+            self.use_ml_detection = False
+            return False
+    
+    def get_ml_requirements_status(self) -> Dict:
+        """Get status of ML requirements"""
+        if HAS_ML_SUPPORT:
+            return check_ml_requirements()
+        else:
+            return {'ml_support': False, 'reason': 'ML detector module not available'}
     
     def _load_default_patterns(self) -> Dict[str, str]:
         """Load comprehensive regex patterns for sensitive data detection"""
@@ -564,13 +627,22 @@ class SensitiveDataScanner:
     def _display_findings_jupyter(self, max_display: int) -> None:
         """Display findings in Jupyter format with HTML styling"""
         # Create summary
+        ml_info = ""
+        if self.use_ml_detection:
+            ml_info = f"""
+            <strong>ML Findings:</strong> {self.scan_stats['ml_findings']}<br>
+            <strong>ML False Positives Filtered:</strong> {self.scan_stats['ml_false_positives_filtered']}<br>
+            <strong>Detection Mode:</strong> {self.scan_stats['detection_mode']}<br>
+            """
+        
         display(HTML(f"""
         <div style="background-color: #f0f8ff; padding: 15px; border-radius: 8px; margin: 10px 0;">
             <h3>🔍 Scan Results Summary</h3>
             <strong>Total Findings:</strong> {len(self.findings)}<br>
             <strong>Files Scanned:</strong> {self.scan_stats['files_scanned']}<br>
             <strong>Pattern Types Found:</strong> {len(self.scan_stats['patterns_matched'])}<br>
-            <strong>False Positives Filtered:</strong> {self.scan_stats['false_positives_filtered']}
+            <strong>False Positives Filtered:</strong> {self.scan_stats['false_positives_filtered']}<br>
+            {ml_info}
         </div>
         """))
         
@@ -750,16 +822,18 @@ class SensitiveDataScanner:
         print(f"📊 Exported {len(self.findings)} findings to {output_file}")
     
     # Pandas integration (if available)
-    def to_dataframe(self):
+    def to_dataframe(self, include_ml_findings: bool = True):
         """Convert findings to pandas DataFrame"""
         if not HAS_PANDAS:
             print("⚠️  pandas not available - install with: pip install pandas")
             return None
         
-        if not self.findings:
+        if not self.findings and not self.ml_findings:
             return pd.DataFrame()
         
         data = []
+        
+        # Add regular findings
         for finding in self.findings:
             data.append({
                 'pattern_type': finding.pattern_type,
@@ -771,10 +845,44 @@ class SensitiveDataScanner:
                 'matched_text': finding.matched_text,
                 'match_length': len(finding.matched_text),
                 'context': finding.context,
-                'file_extension': Path(finding.file_path).suffix.lower()
+                'file_extension': Path(finding.file_path).suffix.lower(),
+                'detection_method': 'regex',
+                'confidence_score': None,
+                'ml_features': None
             })
         
+        # Add ML findings if requested and available
+        if include_ml_findings and self.ml_findings:
+            for ml_finding in self.ml_findings:
+                data.append({
+                    'pattern_type': ml_finding.pattern_type,
+                    'file_path': ml_finding.file_path,
+                    'filename': os.path.basename(ml_finding.file_path),
+                    'line_number': ml_finding.line_number,
+                    'column_start': ml_finding.column_start,
+                    'column_end': ml_finding.column_end,
+                    'matched_text': ml_finding.matched_text,
+                    'match_length': len(ml_finding.matched_text),
+                    'context': ml_finding.context,
+                    'file_extension': Path(ml_finding.file_path).suffix.lower(),
+                    'detection_method': 'ml',
+                    'confidence_score': ml_finding.confidence_score,
+                    'ml_features': str(ml_finding.features) if ml_finding.features else None
+                })
+        
         return pd.DataFrame(data)
+    
+    def get_ml_findings(self) -> List:
+        """Get ML-specific findings with confidence scores"""
+        return self.ml_findings if hasattr(self, 'ml_findings') else []
+    
+    def get_high_confidence_findings(self, threshold: float = 0.8) -> List:
+        """Get ML findings above specified confidence threshold"""
+        if not hasattr(self, 'ml_findings') or not self.ml_findings:
+            return []
+        
+        return [finding for finding in self.ml_findings 
+                if finding.confidence_score >= threshold]
     
     # Jupyter-specific methods
     def create_interactive_viewer(self):
@@ -895,14 +1003,59 @@ class SensitiveDataScanner:
 def quick_scan(directory_path: str, 
                file_extensions: Optional[List[str]] = None,
                custom_patterns: Optional[Dict[str, str]] = None,
-               show_plots: bool = False) -> SensitiveDataScanner:
-    """Quick scan function for script usage"""
-    scanner = SensitiveDataScanner(custom_patterns=custom_patterns, execution_mode='script')
+               show_plots: bool = False,
+               use_ml_detection: bool = False,
+               ml_confidence_threshold: float = 0.7) -> SensitiveDataScanner:
+    """Quick scan function for script usage with optional ML detection"""
+    scanner = SensitiveDataScanner(
+        custom_patterns=custom_patterns, 
+        execution_mode='script',
+        use_ml_detection=use_ml_detection,
+        ml_confidence_threshold=ml_confidence_threshold
+    )
     
     print(f"🚀 Scanning: {directory_path}")
     findings = scanner.scan_directory(directory_path, file_extensions=file_extensions)
     
     print(f"✅ Found {len(findings)} potential issues in {scanner.scan_stats['files_scanned']} files")
+    
+    scanner.display_findings()
+    
+    if show_plots and HAS_PLOTTING and findings:
+        scanner.plot_findings_distribution()
+    
+    return scanner
+
+
+def quick_ml_scan(directory_path: str,
+                  file_extensions: Optional[List[str]] = None,
+                  confidence_threshold: float = 0.7,
+                  show_plots: bool = False) -> SensitiveDataScanner:
+    """Quick ML-enhanced scan with automatic setup"""
+    if not HAS_ML_SUPPORT:
+        print("❌ ML detection not available. Install with:")
+        print("   pip install scikit-learn")
+        print("   pip install transformers torch  # Optional for advanced detection")
+        return None
+    
+    print("🧠 Initializing ML-enhanced secret detection...")
+    scanner = SensitiveDataScanner(
+        execution_mode='script',
+        use_ml_detection=True,
+        ml_confidence_threshold=confidence_threshold,
+        ml_ensemble_mode=True  # Use both regex and ML
+    )
+    
+    print(f"🚀 ML Scanning: {directory_path}")
+    findings = scanner.scan_directory(directory_path, file_extensions=file_extensions)
+    
+    print(f"✅ Found {len(findings)} potential issues in {scanner.scan_stats['files_scanned']} files")
+    
+    # Show ML-specific stats
+    if scanner.use_ml_detection:
+        ml_findings = scanner.get_ml_findings()
+        high_confidence = scanner.get_high_confidence_findings(0.8)
+        print(f"🤖 ML Analysis: {len(ml_findings)} ML findings, {len(high_confidence)} high confidence")
     
     scanner.display_findings()
     
@@ -957,156 +1110,3 @@ auth_token = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJURVNUIiwibmFtZSI6I
 
 if __name__ == "__main__":
     print("Processing FAKE test data for SecretSentry testing...")
-'''
-    
-    # Sample environment file  
-    env_content = '''# NOTICE: ALL CREDENTIALS BELOW ARE FAKE FOR TESTING SECRETSENTRY
-# Database Configuration - TEST CREDENTIALS ONLY
-DATABASE_URL=postgresql://testuser:testpass123@localhost:5432/testdb
-REDIS_URL=redis://testuser:testpass123@localhost:6379/0
-
-# API Keys - FAKE PLACEHOLDER PATTERNS FOR TESTING
-STRIPE_SECRET_KEY=sk_live_xxxxxxxxxxxxxxxxxxxxxxxx
-GOOGLE_MAPS_API_KEY=AIzaSyXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-SLACK_BOT_TOKEN=xoxb-000000000000-000000000000-xxxxxxxxxxxxxxxxxxxxxxxx
-GITHUB_TOKEN=ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-
-# Email Service - FAKE PLACEHOLDER PATTERNS
-SENDGRID_API_KEY=SG.xxxxxxxxxxxxxxxxxxxxxxx.xxxxxxxxxxxxxxxxxxxxxxx
-MAILGUN_API_KEY=key-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-
-# Employee Information - TEST DATA
-HR_DIRECTOR_SALARY=95000
-CFO_COMPENSATION=175000
-
-# System Configuration - TEST DATA
-ADMIN_EMAIL=test@example.com
-SUPPORT_PHONE=+1-000-000-0000
-SERVER_IP=127.0.0.1
-'''
-    
-    # Sample HTML file
-    html_content = '''<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SecretSentry Test File - FAKE DATA</title>
-    <style>
-        body { background-color: #f0f0f0; }
-        .warning { color: #ff0000; font-weight: bold; }
-    </style>
-</head>
-<body>
-    <h1>SecretSentry Test Application</h1>
-    <div class="warning">⚠️ ALL DATA IN THIS FILE IS FAKE FOR TESTING PURPOSES</div>
-    
-    <!-- Fake sensitive data for testing detection -->
-    <script>
-        // FAKE API KEYS FOR SECRETSENTRY TESTING
-        const config = {
-            apiKey: "AIzaSyXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
-            stripeKey: "pk_live_xxxxxxxxxxxxxxxxxxxxxxxx", 
-            databaseUrl: "mongodb://testuser:testpass@localhost:27017/testapp"
-        };
-        
-        // FAKE employee data for testing detection
-        const employeeInfo = {
-            ssn: "000-00-0000",
-            salary: "$95000", 
-            email: "test@example.com"
-        };
-        
-        // Base64 image data (should be filtered out as false positive)
-        const logoImage = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
-        
-        // CSS hex colors (should be filtered out)
-        const colors = {
-            primary: "#3498db",
-            secondary: "#2ecc71", 
-            danger: "#e74c3c"
-        };
-    </script>
-    
-    <p>Contact: test@example.com or (000) 000-0000</p>
-    <p><strong>⚠️ This is a test file for SecretSentry with fake data only!</strong></p>
-</body>
-</html>'''
-    
-    # Jupyter notebook with fake data
-    notebook_content = '''{
- "cells": [
-  {
-   "cell_type": "markdown",
-   "metadata": {},
-   "source": [
-    "# SecretSentry Test Notebook\\n",
-    "⚠️ This notebook contains FAKE data for testing SecretSentry detection"
-   ]
-  },
-  {
-   "cell_type": "code", 
-   "execution_count": 1,
-   "metadata": {},
-   "outputs": [
-    {
-     "name": "stdout",
-     "output_type": "stream", 
-     "text": [
-      "Loading FAKE test configuration...\\n"
-     ]
-    }
-   ],
-   "source": [
-    "# FAKE Configuration for SecretSentry testing\\n",
-    "API_KEY = \\"AIzaSyXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX\\"\\n",
-    "DATABASE_PASSWORD = \\"fake_test_password_123\\"\\n",
-    "\\n",
-    "# FAKE employee data\\n", 
-    "employee_ssn = \\"000-00-0000\\"\\n",
-    "employee_salary = 75000\\n",
-    "\\n",
-    "print(\\"Loading FAKE test configuration...\\")\\n"
-   ]
-  },
-  {
-   "cell_type": "code",
-   "execution_count": 2,
-   "metadata": {},
-   "outputs": [],
-   "source": [
-    "# More FAKE sensitive data for testing\\n",
-    "credit_card = \\"0000-0000-0000-0000\\"\\n",
-    "phone_number = \\"(000) 000-0000\\"\\n", 
-    "email_address = \\"test@example.com\\""
-   ]
-  }
- ],
- "metadata": {
-  "kernelspec": {
-   "display_name": "Python 3",
-   "language": "python", 
-   "name": "python3"
-  }
- },
- "nbformat": 4,
- "nbformat_minor": 4
-}'''
-    
-    # Create files
-    files_to_create = [
-        ("sensitive_app.py", python_content),
-        (".env", env_content), 
-        ("sample_webpage.html", html_content),
-        ("data_analysis.ipynb", notebook_content)
-    ]
-    
-    for filename, content in files_to_create:
-        file_path = os.path.join(base_dir, filename)
-        with open(file_path, 'w') as f:
-            f.write(content)
-    
-    print(f"📁 Created {len(files_to_create)} sample files in {base_dir}")
-    print("🔍 Files contain FAKE patterns for testing SecretSentry detection")
-    print("⚠️  All data is obviously fake and safe for public repositories")
-    print("🛡️  Using placeholder formats (xxx) to avoid GitHub secret scanning")

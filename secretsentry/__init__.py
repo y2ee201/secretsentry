@@ -21,7 +21,7 @@ Example usage:
     >>> scanner.display_findings()
 """
 
-__version__ = "1.0.0"
+__version__ = "2.0.0"
 __author__ = "SecretSentry Team"
 __license__ = "MIT"
 __copyright__ = "Copyright 2024 SecretSentry"
@@ -31,16 +31,44 @@ from .scanner import (
     SensitiveDataScanner as SecretSentry,
     Finding,
     quick_scan,
+    quick_ml_scan,
 )
+
+# Import ML components with fallback
+try:
+    from .ml_detector import (
+        MLSecretDetector,
+        MLFinding,
+        check_ml_requirements,
+        get_system_info
+    )
+    HAS_ML_SUPPORT = True
+except ImportError:
+    MLSecretDetector = None
+    MLFinding = None
+    check_ml_requirements = None
+    get_system_info = None
+    HAS_ML_SUPPORT = False
 
 # Define what gets imported with "from secretsentry import *"
 __all__ = [
     "SecretSentry",
     "SensitiveDataScanner", 
     "Finding",
-    "quick_scan", 
-    "__version__"
+    "quick_scan",
+    "quick_ml_scan",
+    "__version__",
+    "HAS_ML_SUPPORT"
 ]
+
+# Add ML components to __all__ if available
+if HAS_ML_SUPPORT:
+    __all__.extend([
+        "MLSecretDetector",
+        "MLFinding", 
+        "check_ml_requirements",
+        "get_system_info"
+    ])
 
 # Alias for backward compatibility and cleaner imports
 SensitiveDataScanner = SecretSentry
